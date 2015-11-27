@@ -5,16 +5,26 @@ IFS=$'\n\t'
 
 CUR_TIME=`date +%FT%TZ`
 CUSTOM_RPMS=./RPMS
-DVD_LAYOUT=/data/centos-6-iso-layout
+DVD_LAYOUT=/export/var/setup/ISO/centos-67-iso-layout
 VERSION="6.7"
-DVD_TITLE="CentOS ${VERSION} Joyent"
+DVD_TITLE="CentOS ${VERSION} GMO Internet"
 ISO=CentOS-${VERSION}-x86_64-bin-DVD1.iso
-ISO_DIR=/data/fetched-iso
-ISO_FILENAME=./centos-6-joyent.iso
+##ISO_DIR=/export/var/setup/ISO/fetched-iso
+ISO_DIR=/var/www/html/repos.myvps.jp/pub/Linux/centos/6.7/isos/x86_64
+##ISO_FILENAME=./centos-6-joyent.iso
+ISO_FILENAME=./centos-67-gmo.iso
 KS_CFG=./ks.cfg
+KS_RESCUE_CFG=./ks-rescue.cfg
+KS_BASE_CFG=/etc/cobbler/ux-nexsus-10g-ibm-x3550m5_kvm-ce64-64-isoboot.ks
+KS_RESCUE_BASE_CFG=/export/var/setup/ISO/isolinux-ce67-64/ks/ks-rescue.cfg
 GUESTTOOLS=sdc-vmtools
-MIRROR=http://mirrors.gigenet.com/centos/${VERSION}/isos/x86_64
+##MIRROR=http://mirrors.gigenet.com/centos/${VERSION}/isos/x86_64
+MIRROR=https://repos.app-sys.jp/pub/Linux/centos/${VERSION}/isos/x86_64
 MOUNT_POINT=/mnt/centos6
+
+CSV_FILE=/export/var/setup/iso-setup-vn2c-csv.txt
+UNIT_INFO_FILE=/export/var/setup/iso-setup-unit-info.txt
+
 
 function fetch_iso() {
     echo "Finding $ISO in $ISO_DIR"
@@ -80,10 +90,32 @@ function create_layout() {
     tar cf - . | tar xpf - -C $DVD_LAYOUT
     popd > /dev/null 2>&1
     umount $MOUNT_POINT
+
+
+if [ ! -d $CUSTOM_RPMS/ce67-updates ]; then
+    for repo_dir in gel-el6-noarch gel-el6-x86_64 el6-ibm
+    do
+        rsync -arv /var/www/cobbler/repo_mirror/$repo_dir  $CUSTOM_RPMS/
+        for adir in drpms cache repodata
+        do
+          test -d $CUSTOM_RPMS/$repo_dir/$adir && rm -rvf $CUSTOM_RPMS/$repo_dir/$adir
+        done
+    done
+    if [ ! -d $CUSTOM_RPMS/ce67-updates ]; then
+      mkdir $CUSTOM_RPMS/ce67-updates
+    fi
+    cd $CUSTOM_RPMS/ce67-updates/
+    echo 'mirror ./ ./' | lftp https://repos.app-sys.jp/pub/Linux/centos/6.7/updates/x86_64/
+    for adir in drpms cache repodata
+    do
+      test -d $CUSTOM_RPMS/ce67-updates/$adir && rm -rvf $CUSTOM_RPMS/ce67-updates/$adir
+    done
+fi
+    find $CUSTOM_RPMS/ce67-updates -type f -name "*java*.rpm" -exec rm -rvf {} \;
     
     if [ -d $CUSTOM_RPMS ]; then
         echo "Copying custom RPMS"
-        find $CUSTOM_RPMS -type f -exec cp {} $DVD_LAYOUT/Packages \;
+        find $CUSTOM_RPMS -type f -name "*.rpm" -exec cp {} $DVD_LAYOUT/Packages \;
     fi
 
     echo "Finished Populating Layout"
@@ -91,7 +123,16 @@ function create_layout() {
 
 function copy_ks_cfg() {
     echo "Copying Kickstart file"
-    cp $KS_CFG $DVD_LAYOUT/
+    cat $KS_BASE_CFG > $KS_CFG
+    cat $KS_RESCUE_BASE_CFG > $KS_RESCUE_CFG
+    ## copy
+    cp -avf $KS_CFG $DVD_LAYOUT/
+    test -d $DVD_LAYOUT/isolinux/ks || mkdir -p $DVD_LAYOUT/isolinux/ks
+    cp -avf $KS_CFG $DVD_LAYOUT/isolinux/ks/ks.cfg
+    cp -avf $KS_RESCUE_CFG $DVD_LAYOUT/isolinux/ks/ks-rescue.cfg
+    ## copy: csv, unit.txt
+    cp -avf $CSV_FILE        $DVD_LAYOUT/isolinux/ks/
+    cp -avf $UNIT_INFO_FILE  $DVD_LAYOUT/isolinux/ks/
 }
 
 function copy_guest_tools() {
@@ -138,6 +179,14 @@ function create_newiso() {
     echo "NEW ISO $ISO_FILENAME is ready"
 }
 
+function deploy_newiso() {
+    TO_ISO_NAME=CentOS-6.7-x86_64-mini-ks-bind-vnxx.iso
+    TO_ISO_DIR=/export/vm/iso
+    pushd $DVD_LAYOUT/
+    mv -vf $ISO_FILENAME $TO_ISO_DIR/$TO_ISO_NAME
+    rsync -arv $TO_ISO_DIR/$TO_ISO_NAME /var/lib/tftpboot/images/ce67-64-x86_64-isoboot/$TO_ISO_NAME
+    popd
+}
 # main line
 
 usage()
@@ -152,6 +201,7 @@ Commands:
         fetch                 - fetch ISO
         layout                - create layout for new ISO
         finish                - create the new ISO
+        deploy                - deploy new ISO
 
 EOF
     exit 1
@@ -176,13 +226,16 @@ while true ; do
 done
 
 for arg ; do
-    if [ $arg = 'fetch' ] ; then
-        fetch_iso
-    fi
+    #if [ $arg = 'fetch' ] ; then
+    #    fetch_iso
+    #fi
     if [ $arg = 'layout' ] ; then
         create_layout
     fi
     if [ $arg = 'finish' ] ; then
         create_newiso
+    fi
+    if [ $arg = 'deploy' ] ; then
+        deploy_newiso
     fi
 done

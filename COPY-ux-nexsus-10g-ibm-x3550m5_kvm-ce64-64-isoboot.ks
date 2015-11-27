@@ -26,7 +26,8 @@ cdrom
 reboot --eject
 ## ============================================================
 
-rootpw Xr74Zwk9
+rootpw  --iscrypted $1$ASCj4mm1$.CIXYBsw6hzxj9XtRhPhV1
+## rootpw Xhogehoge
 selinux --disabled
 skipx
 timezone Asia/Tokyo
@@ -155,6 +156,20 @@ __EOF
 modprobe bonding
 modprobe cdc_ether
 
+## ----------------------------------------------
+## bonding for Manage VLAN 302
+ip link set eth1 down 
+
+modprobe bonding mode=4 miimon=100 lacp_rate=fast xmit_hash_policy=layer3+4
+modprobe 8021q
+
+echo +eth1 > /sys/class/net/bond0/bonding/slaves 
+
+ip link set bond0 up
+
+ip link add link bond0 name bond0.544 type vlan id 544
+## ----------------------------------------------
+
 myip=0.0.0.0
 myhostname="vn0c0353.apu8.internal-gmo"
 
@@ -218,6 +233,11 @@ fi
 echo "hostname : ${myhostname} " > tee -a /root/myhostname.txt
 echo "hostname : ${myhostname} " > /dev/console
 
+## ----------------------------------------------
+## Manage network up
+ip addr add ${myip}/21 brd 10.110.119.255 dev bond0.544
+ip link set dev bond0.544 up
+## ----------------------------------------------
 
 ## dd if=/dev/zero of=/dev/sda bs=512 count=64
 ## /usr/sbin/parted -s /dev/sda mklabel gpt
@@ -226,9 +246,7 @@ echo "hostname : ${myhostname} " > /dev/console
 
 ## dd if=/dev/zero of=/dev/sdb bs=512 count=64
 ## /usr/sbin/parted -s /dev/sdb mklabel gpt
-
 %end
-
 
 
 %packages --ignoremissing
